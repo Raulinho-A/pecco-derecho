@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:17.11-bookworm
+    environment:
+      POSTGRES_USER: ${DB_USER:-pecco_test}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-pecco_test}
+      POSTGRES_DB: ${DB_NAME:-pecco_test}
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER:-pecco_test} -d ${DB_NAME:-pecco_test}",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+
+  qdrant:
+    image: qdrant/qdrant:v1.19.2
+    volumes:
+      - qdrant_test_data:/qdrant/storage
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-pecco_test}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-pecco_test}
+    volumes:
+      - rabbitmq_test_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+
+  unit-tests:
+    build:
+      context: .
+      target: test
+    env_file:
+      - path: ${TEST_APP_ENV_FILE:-.env.test}
+        required: false
+    environment:
+      APP_ENV: test
+      AI_EXTERNAL_CALLS_ENABLED: "false"
+      OPENAI_API_KEY: ""
+      OPENAI_MODEL: ""
+    command: ["pytest", "tests/unit"]
+
+  integration-tests:
+    build:
+      context: .
+      target: test
+    env_file:
+      - path: ${TEST_APP_ENV_FILE:-.env.test}
+        required: false
+    environment:
+      APP_ENV: test
+      DB_HOST: postgres
+      DB_PORT: 5432
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      AI_EXTERNAL_CALLS_ENABLED: "false"
+      OPENAI_API_KEY: ""
+      OPENAI_MODEL: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    command: ["pytest", "tests/integration", "tests/e2e"]
+
+volumes:
+  postgres_test_data:
+  qdrant_test_data:
+  rabbitmq_test_data:
